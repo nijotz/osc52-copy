@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Copy stdin (or arguments) to the local clipboard via OSC 52.
 #
-# Works over SSH without X11/Wayland forwarding. The terminal emulator must
-# support OSC 52 (iTerm2, kitty, WezTerm, recent xterm, Alacritty with the
-# option enabled). Inside tmux the sequence is wrapped in the DCS passthrough
-# so tmux forwards it to the outer terminal.
+# * Works locally without pbcopy or xclip. Works over SSH without X11/Wayland
+#   forwarding.
+# * The terminal emulator must support OSC 52 (nearly all do).
+# * Inside tmux, requires either `set-clipboard on` or `set-clipboard external`
+#   or `allow-passthrough on`. The script detects what is set and adapts/warns.
 #
 # Usage:
 #   echo hello | osc52-copy
@@ -25,11 +26,24 @@ b64=$(printf '%s' "$payload" | base64 | tr -d '\n')
 # 'c' targets the system clipboard
 seq=$'\033]52;c;'$b64$'\a'
 
+# Inside tmux, decide how to deliver the sequence to the outer terminal:
+# - set-clipboard on/external: tmux forwards a raw OSC 52 string
+# - allow-passthrough on: wrap in DCS passthrough
+# - neither: warn/exit
 if [[ -n ${TMUX:-} ]]; then
-  # tmux's DCS passthrough requires every embedded ESC to be doubled,
-  # then the whole payload wrapped in `ESC P tmux; ... ESC \` (ST).
-  seq=${seq//$'\033'/$'\033\033'}
-  seq=$'\033Ptmux;'$seq$'\033\\'
+  set_clipboard=$(tmux show-options -gv set-clipboard 2>/dev/null || true)
+  if [[ $set_clipboard != "on" && $set_clipboard != "external" ]]; then
+    allow_passthrough=$(tmux show-options -gv allow-passthrough 2>/dev/null || true)
+    if [[ $allow_passthrough == "on" ]]; then
+      # Double every embedded ESC, then wrap in `ESC P tmux; ... ESC \` (ST).
+      seq=${seq//$'\033'/$'\033\033'}
+      seq=$'\033Ptmux;'$seq$'\033\\'
+    else
+      echo "osc52-copy: tmux clipboard forwarding not configured." >&2
+      echo "  Add 'set -g set-clipboard on' (preferred) or 'set -g allow-passthrough on' to your tmux config." >&2
+      exit 1
+    fi
+  fi
 fi
 
 # Write to the controlling tty so the sequence reaches the terminal even

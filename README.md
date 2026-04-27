@@ -24,13 +24,14 @@ install -m 755 osc52-copy ~/.local/bin/
 
 ## Inside tmux
 
-The script auto-detects `$TMUX` and wraps the sequence in tmux's DCS passthrough so it reaches the outer terminal. tmux 3.3+ requires this in your config:
+tmux must be configured to forward the sequence to the outer terminal. The script supports either of:
 
 ```tmux
-set -g allow-passthrough on
+set -g set-clipboard on        # preferred; 'external' also works
+set -g allow-passthrough on    # alternative
 ```
 
-Without that, the sequence is silently dropped.
+If neither is set, the script prints a warning to stderr explaining how to fix it. With `set-clipboard`, the script sends a raw OSC 52 sequence. With `allow-passthrough`, it wraps the sequence in tmux's DCS passthrough envelope.
 
 ## How it works
 
@@ -39,7 +40,7 @@ OSC 52 lets a program tell the terminal "put this base64-encoded text in the cli
 1. Reads input from stdin or arguments.
 2. Base64-encodes it (newlines stripped, since OSC sequences cannot contain them).
 3. Wraps it as `ESC ] 52 ; c ; <base64> BEL` (`c` selects the system clipboard).
-4. Inside tmux, additionally wraps in `ESC P tmux; ... ESC \` with every embedded ESC doubled, so tmux's passthrough forwards it intact.
+4. Inside tmux, queries `set-clipboard` and `allow-passthrough` to pick the right delivery: raw OSC 52 (set-clipboard) or DCS-wrapped (allow-passthrough).
 5. Writes the sequence to `/dev/tty` so it works even when stdout is piped or redirected.
 
 ## Why not [theimpostor/osc](https://github.com/theimpostor/osc)?
